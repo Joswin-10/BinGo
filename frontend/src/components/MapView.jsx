@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import config from '../config';
 
 // Fix for default marker icons in react-leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -78,8 +79,8 @@ const MapView = () => {
     const fetchData = async () => {
         try {
             const [binsResponse, trucksResponse] = await Promise.all([
-                fetch('http://localhost:8000/api/bins'),
-                fetch('http://localhost:8000/api/trucks')
+                fetch(`${config.apiUrl}/api/bins`),
+                fetch(`${config.apiUrl}/api/trucks`)
             ]);
 
             if (!binsResponse.ok || !trucksResponse.ok) {
@@ -119,7 +120,7 @@ const MapView = () => {
 
     const simulateStep = async () => {
         try {
-            const response = await fetch('http://localhost:8000/api/simulate/step', {
+            const response = await fetch(`${config.apiUrl}/api/simulate/step`, {
                 method: 'POST',
             });
             
