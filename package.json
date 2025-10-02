@@ -5,9 +5,12 @@
     "dev": "npm run dev --prefix frontend",
     "dev:backend": "cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
     "dev:full": "concurrently \"npm run dev:backend\" \"npm run dev --prefix frontend\"",
-    "build": "npm run build --prefix frontend",
+    "build": "npm install --prefix frontend && npm run build --prefix frontend",
+    "build:frontend": "npm install --prefix frontend && npm run build --prefix frontend",
+    "start": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
     "preview": "npm run preview --prefix frontend",
-    "lint": "npm run lint --prefix frontend"
+    "lint": "npm run lint --prefix frontend",
+    "install:all": "npm install && npm install --prefix frontend"
   },
   "dependencies": {
     "axios": "^1.12.2",
