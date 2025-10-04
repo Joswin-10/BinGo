@@ -1,28 +1,17 @@
-from pydantic import BaseModel
-from typing import List, Optional
-from enum import Enum
-
-class TruckStatus(str, Enum):
-    IDLE = "idle"
-    COLLECTING = "collecting"
-    RETURNING = "returning"
+from typing import Optional
+from pydantic import BaseModel, Field
+from uuid import UUID
 
 class Bin(BaseModel):
-    id: int
-    lat: float
-    lon: float
-    waste_level: float  # 0-100 percentage
+    id: UUID
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    waste_level: int = Field(..., ge=0, le=100)
     is_collected: bool = False
 
 class Truck(BaseModel):
-    id: int
-    lat: float
-    lon: float
-    status: TruckStatus = TruckStatus.IDLE
-    capacity: float = 100.0
-    current_load: float = 0.0
-
-class SimulationState(BaseModel):
-    bins: List[Bin]
-    trucks: List[Truck]
-    step: int = 0
+    id: UUID
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    status: str = Field(..., pattern="^(waiting|collecting)$")
+    current_bin_id: Optional[UUID] = None

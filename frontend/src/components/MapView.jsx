@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import config from '../config';
+import { API_CONFIG, fetchWithRetry, ENDPOINTS } from '../config';
 
 // Fix for default marker icons in react-leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -78,25 +78,17 @@ const MapView = () => {
 
     const fetchData = async () => {
         try {
-            const [binsResponse, trucksResponse] = await Promise.all([
-                fetch(`${config.apiUrl}/api/bins`),
-                fetch(`${config.apiUrl}/api/trucks`)
-            ]);
-
-            if (!binsResponse.ok || !trucksResponse.ok) {
-                throw new Error('Failed to fetch data');
-            }
-
+            setLoading(true);
             const [binsData, trucksData] = await Promise.all([
-                binsResponse.json(),
-                trucksResponse.json()
+                fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.BINS}`),
+                fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.TRUCKS}`)
             ]);
 
             setBins(binsData);
             setTrucks(trucksData);
             setError(null);
         } catch (err) {
-            setError('Failed to fetch data. Please try again.');
+            setError('Failed to fetch data. Retrying...');
             console.error('Error fetching data:', err);
         } finally {
             setLoading(false);
@@ -120,22 +112,21 @@ const MapView = () => {
 
     const simulateStep = async () => {
         try {
-            const response = await fetch(`${config.apiUrl}/api/simulate/step`, {
+            setLoading(true);
+            const result = await fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.SIMULATE}`, {
                 method: 'POST',
             });
             
-            if (!response.ok) {
-                throw new Error('Simulation failed');
-            }
-            
-            const result = await response.json();
             console.log('Simulation result:', result);
+            setError(null);
             
             // Refresh data after simulation
             await fetchData();
         } catch (error) {
-            setError('Simulation failed. Please try again.');
+            setError('Simulation failed. Retrying...');
             console.error('Error during simulation:', error);
+        } finally {
+            setLoading(false);
         }
     };
 
