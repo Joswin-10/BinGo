@@ -38,3 +38,13 @@ async def mark_bin_collected(bin_id: str):
         return response.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/{bin_id}")
+async def update_bin(bin_id: str, bin_data: dict):
+    try:
+        response = get_db().table("bins").update(bin_data).eq("id", bin_id).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Bin not found")
+        return response.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
