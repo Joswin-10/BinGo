@@ -48,3 +48,13 @@ async def update_bin(bin_id: str, bin_data: dict):
         return response.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/test")
+async def test_connection():
+    """Test database connection"""
+    try:
+        response = get_db().table("bins").select("id, is_collected").limit(5).execute()
+        return {"message": "Database connection successful", "sample_data": response.data}
+    except Exception as e:
+        print(f"Database connection test failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -3,6 +3,14 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { API_CONFIG, fetchWithRetry, ENDPOINTS } from '../config';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client - Replace with your actual credentials
+
+const SUPABASE_URL="https://pyyhkucbpwfmbazvmztj.supabase.co";
+const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5eWhrdWNicHdmbWJhenZtenRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzODI0NjksImV4cCI6MjA3NDk1ODQ2OX0.bxKUn7UhOE9Zi1YmGcbwkG_pnd1E7Mh1wjcVWsWHesA"
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Fix for default marker icons in react-leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -226,28 +234,116 @@ const MapView = () => {
         }
     };
 
-    const resetSimulation = async () => {
-        if (loading || isSimulating) return; // Prevent multiple simultaneous runs
+    const testConnection = async () => {
+        try {
+            console.log('Testing database connection...');
+            const testResult = await fetchWithRetry(`${API_CONFIG.baseUrl}/api/bins/test`);
+            console.log('Test result:', testResult);
+            setError(`Database test: ${testResult.message}. Found ${testResult.sample_data?.length || 0} bins.`);
+            setTimeout(() => setError(null), 5000);
+        } catch (error) {
+            setError(`Database test failed: ${error.message}`);
+            console.error('Database test error:', error);
+        }
+    };
+
+    const testSupabaseDirect = async () => {
+        try {
+            console.log('Testing Supabase direct connection...');
+            console.log('Supabase URL:', SUPABASE_URL);
+            console.log('Supabase Key (first 20 chars):', SUPABASE_ANON_KEY.substring(0, 20));
+            
+            // Test basic connection
+            const { data, error } = await supabase
+                .from('bins')
+                .select('id, is_collected')
+                .limit(3);
+            
+            if (error) {
+                throw new Error(`Supabase error: ${error.message}`);
+            }
+            
+            console.log('Supabase test result:', data);
+            setError(`Supabase test: Found ${data?.length || 0} bins. Data: ${JSON.stringify(data)}`);
+            setTimeout(() => setError(null), 5000);
+            
+        } catch (error) {
+            setError(`Supabase test failed: ${error.message}`);
+            console.error('Supabase test error:', error);
+        }
+    };
+
+    const resetAllBins = async () => {
+        if (loading || isSimulating) return;
         
         try {
             setLoading(true);
             setError(null);
             
-            console.log('Resetting simulation - refreshing data...');
+            console.log('🔥 RESET FUNCTION WORKING 🔥');
+            console.log('=== STARTING RESET ===');
             
-            // Simple reset: just refresh the data
-            // The simulation will auto-reset bins when needed
+            // Step 1: Check what bins exist
+            console.log('Step 1: Fetching existing bins...');
+            const { data: existingBins, error: fetchError } = await supabase
+                .from('bins')
+                .select('id, is_collected');
+            
+            if (fetchError) {
+                console.error('Fetch error:', fetchError);
+                throw new Error(`Failed to fetch bins: ${fetchError.message}`);
+            }
+            
+            console.log('Step 1 Result - Existing bins:', existingBins);
+            console.log('Number of bins found:', existingBins?.length || 0);
+            
+            if (!existingBins || existingBins.length === 0) {
+                throw new Error('No bins found in database');
+            }
+            
+            // Step 2: Try the update
+            console.log('Step 2: Updating all bins to is_collected = false...');
+            const { data: updateData, error: updateError, count } = await supabase
+                .from('bins')
+                .update({ is_collected: false })
+                .neq('id', '00000000-0000-0000-0000-000000000000');
+            
+            if (updateError) {
+                console.error('Update error:', updateError);
+                throw new Error(`Update failed: ${updateError.message}`);
+            }
+            
+            console.log('Step 2 Result - Update response:', { updateData, count });
+            
+            // Step 3: Verify the update
+            console.log('Step 3: Verifying update...');
+            const { data: verifyData, error: verifyError } = await supabase
+                .from('bins')
+                .select('id, is_collected');
+            
+            if (verifyError) {
+                console.warn('Verify error:', verifyError);
+            } else {
+                console.log('Step 3 Result - Bins after update:', verifyData);
+                const stillCollected = verifyData?.filter(bin => bin.is_collected === true);
+                console.log('Bins still marked as collected:', stillCollected?.length || 0);
+            }
+            
+            // Step 4: Refresh the map data
+            console.log('Step 4: Refreshing map data...');
             await fetchData();
             
-            console.log('Reset completed - data refreshed');
+            console.log('=== RESET COMPLETED ===');
             
             // Show success message
-            setError('Simulation reset! Data refreshed. The simulation will auto-reset bins when needed.');
-            setTimeout(() => setError(null), 4000);
+            setError(`✅ Reset completed! ${count || 0} bins updated to uncollected status.`);
+            setTimeout(() => setError(null), 5000);
             
         } catch (error) {
-            setError('Reset failed. Please try again.');
-            console.error('Error during reset:', error);
+            console.error('=== RESET FAILED ===');
+            console.error('Full error:', error);
+            setError(`❌ Reset failed: ${error.message}. Check console for details.`);
+            setTimeout(() => setError(null), 5000);
         } finally {
             setLoading(false);
         }
@@ -285,7 +381,7 @@ const MapView = () => {
                     {isSimulating ? 'Simulating...' : loading ? 'Loading...' : 'Run Simulation'}
                 </button>
                 <button 
-                    onClick={resetSimulation}
+                    onClick={resetAllBins}
                     disabled={loading || isSimulating}
                     style={{
                         padding: '10px 20px',
@@ -313,35 +409,36 @@ const MapView = () => {
                 />
                 <MapUpdater center={center} />
                 
-                {/* Render Bins */}
-                {bins.map((bin) => (
-                    <Marker
-                        key={bin.id}
-                        position={[bin.lat, bin.lon]}
-                        icon={createBinMarker(bin.waste_level)}
-                        opacity={bin.is_collected ? 0.5 : 1}
-                    >
-                        <Popup>
-                            <div style={{ padding: '5px', textAlign: 'center' }}>
-                                <h3 style={{ margin: '0 0 5px 0' }}>Bin #{bin.id}</h3>
-                                <div style={{
-                                    backgroundColor: getWasteLevelColor(bin.waste_level),
-                                    padding: '5px',
-                                    borderRadius: '3px',
-                                    marginBottom: '5px'
-                                }}>
-                                    <strong>Waste Level: {bin.waste_level}%</strong>
+                {/* Render Bins - Only show uncollected bins */}
+                {bins
+                    .filter(bin => !bin.is_collected) // Only show uncollected bins
+                    .map((bin) => (
+                        <Marker
+                            key={bin.id}
+                            position={[bin.lat, bin.lon]}
+                            icon={createBinMarker(bin.waste_level)}
+                        >
+                            <Popup>
+                                <div style={{ padding: '5px', textAlign: 'center' }}>
+                                    <h3 style={{ margin: '0 0 5px 0' }}>Bin #{bin.id}</h3>
+                                    <div style={{
+                                        backgroundColor: getWasteLevelColor(bin.waste_level),
+                                        padding: '5px',
+                                        borderRadius: '3px',
+                                        marginBottom: '5px'
+                                    }}>
+                                        <strong>Waste Level: {bin.waste_level}%</strong>
+                                    </div>
+                                    <p style={{ 
+                                        margin: '5px 0',
+                                        color: '#000'
+                                    }}>
+                                        Status: Not Collected
+                                    </p>
                                 </div>
-                                <p style={{ 
-                                    margin: '5px 0',
-                                    color: bin.is_collected ? '#888' : '#000'
-                                }}>
-                                    Status: {bin.is_collected ? 'Collected' : 'Not Collected'}
-                                </p>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                            </Popup>
+                        </Marker>
+                    ))}
 
                 {/* Render Trucks */}
                 {trucks.map((truck) => {
