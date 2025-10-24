@@ -69,12 +69,15 @@ function MapUpdater({ center }) {
     return null;
 }
 
+
 const MapView = () => {
     const [bins, setBins] = useState([]);
     const [trucks, setTrucks] = useState([]);
     const [center, setCenter] = useState([40.7128, -74.0060]);
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [truckPositions, setTruckPositions] = useState([]);
 
     const fetchData = async () => {
         try {
@@ -110,29 +113,150 @@ const MapView = () => {
         return '#00ff00';
     };
 
+    // Function to animate truck movement between two points
+    const animateTruckMovement = async (fromLat, fromLon, toLat, toLon, truckId) => {
+        const steps = 20; // Number of animation steps
+        const duration = 2000; // Total animation duration in ms
+        const stepDuration = duration / steps;
+        
+        const latStep = (toLat - fromLat) / steps;
+        const lonStep = (toLon - fromLon) / steps;
+        
+        for (let i = 0; i <= steps; i++) {
+            const currentLat = fromLat + (latStep * i);
+            const currentLon = fromLon + (lonStep * i);
+            
+            // Update truck position
+            setTruckPositions(prev => ({
+                ...prev,
+                [truckId]: { lat: currentLat, lon: currentLon }
+            }));
+            
+            // Wait for the next step
+            await new Promise(resolve => setTimeout(resolve, stepDuration));
+        }
+    };
+
     const simulateStep = async () => {
+        if (loading || isSimulating) return; // Prevent multiple simultaneous runs
+        
         try {
             setLoading(true);
+            setError(null);
+            
             const result = await fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.SIMULATE}`, {
                 method: 'POST',
             });
             
             console.log('Simulation result:', result);
-            setError(null);
+            
+            if (result.success) {
+                console.log(`Truck ${result.truck_id} moved from (${result.old_position.lat}, ${result.old_position.lon}) to (${result.new_position.lat}, ${result.new_position.lon})`);
+                console.log(`Collected bin ${result.collected_bin_id}`);
+            } else {
+                console.log('Simulation step:', result.message);
+            }
             
             // Refresh data after simulation
             await fetchData();
         } catch (error) {
-            setError('Simulation failed. Retrying...');
+            setError('Simulation failed. Please try again.');
             console.error('Error during simulation:', error);
         } finally {
             setLoading(false);
         }
     };
 
+    const runFullSimulation = async () => {
+        if (isSimulating) return; // Prevent multiple simultaneous runs
+        
+        try {
+            setIsSimulating(true);
+            setError(null);
+            
+            console.log('Starting full simulation...');
+            let stepCount = 0;
+            const maxSteps = 50; // Prevent infinite loops
+            
+            // Get initial truck positions
+            await fetchData();
+            
+            while (stepCount < maxSteps) {
+                const result = await fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.SIMULATE}`, {
+                    method: 'POST',
+                });
+                
+                stepCount++;
+                console.log(`Simulation step ${stepCount}:`, result);
+                
+                if (result.success) {
+                    console.log(`Truck ${result.truck_id} moving from (${result.old_position.lat}, ${result.old_position.lon}) to (${result.new_position.lat}, ${result.new_position.lon})`);
+                    console.log(`Collecting bin ${result.collected_bin_id}`);
+                    
+                    // Animate truck movement
+                    await animateTruckMovement(
+                        result.old_position.lat, 
+                        result.old_position.lon,
+                        result.new_position.lat, 
+                        result.new_position.lon,
+                        result.truck_id
+                    );
+                    
+                    // Refresh data to update bin status and final truck position
+                    await fetchData();
+                    
+                } else {
+                    console.log('Simulation completed:', result.message);
+                    break;
+                }
+            }
+            
+            if (stepCount >= maxSteps) {
+                console.log('Simulation stopped after maximum steps');
+            }
+            
+            console.log(`Full simulation completed in ${stepCount} steps`);
+            
+        } catch (error) {
+            setError('Simulation failed. Please try again.');
+            console.error('Error during full simulation:', error);
+        } finally {
+            setIsSimulating(false);
+            setTruckPositions({}); // Clear animation positions
+        }
+    };
+
+    const resetSimulation = async () => {
+        if (loading || isSimulating) return; // Prevent multiple simultaneous runs
+        
+        try {
+            setLoading(true);
+            setError(null);
+            
+            console.log('Resetting simulation - refreshing data...');
+            
+            // Simple reset: just refresh the data
+            // The simulation will auto-reset bins when needed
+            await fetchData();
+            
+            console.log('Reset completed - data refreshed');
+            
+            // Show success message
+            setError('Simulation reset! Data refreshed. The simulation will auto-reset bins when needed.');
+            setTimeout(() => setError(null), 4000);
+            
+        } catch (error) {
+            setError('Reset failed. Please try again.');
+            console.error('Error during reset:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
     return (
         <div className="map-container" style={{ height: '80vh', width: '100%' }}>
-            <div className="controls" style={{ margin: '10px', position: 'absolute', zIndex: 1000 }}>
+            <div className="controls" style={{ margin: '10px', position: 'absolute', zIndex: 1000, display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                 {error && (
                     <div style={{
                         backgroundColor: '#ff6b6b',
@@ -145,25 +269,43 @@ const MapView = () => {
                     </div>
                 )}
                 <button 
-                    onClick={simulateStep}
-                    disabled={loading}
+                    onClick={runFullSimulation}
+                    disabled={loading || isSimulating}
                     style={{
                         padding: '10px 20px',
                         fontSize: '16px',
-                        backgroundColor: loading ? '#cccccc' : '#4CAF50',
+                        backgroundColor: (loading || isSimulating) ? '#cccccc' : '#4CAF50',
                         color: 'white',
                         border: 'none',
                         borderRadius: '5px',
-                        cursor: loading ? 'not-allowed' : 'pointer'
+                        cursor: (loading || isSimulating) ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.3s ease'
                     }}
                 >
-                    {loading ? 'Loading...' : 'Run Simulation Step'}
+                    {isSimulating ? 'Simulating...' : loading ? 'Loading...' : 'Run Simulation'}
+                </button>
+                <button 
+                    onClick={resetSimulation}
+                    disabled={loading || isSimulating}
+                    style={{
+                        padding: '10px 20px',
+                        fontSize: '16px',
+                        backgroundColor: (loading || isSimulating) ? '#cccccc' : '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '5px',
+                        cursor: (loading || isSimulating) ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.3s ease'
+                    }}
+                >
+                    {loading ? 'Resetting...' : 'Reset Simulation'}
                 </button>
             </div>
             <MapContainer
                 center={center}
                 zoom={13}
                 style={{ height: '100%', width: '100%' }}
+                zoomControl={false}
             >
                 <TileLayer
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -202,27 +344,45 @@ const MapView = () => {
                 ))}
 
                 {/* Render Trucks */}
-                {trucks.map((truck) => (
-                    <Marker
-                        key={truck.id}
-                        position={[truck.lat, truck.lon]}
-                        icon={truckIcon}
-                    >
-                        <Popup>
-                            <div style={{ padding: '5px', textAlign: 'center' }}>
-                                <h3 style={{ margin: '0 0 5px 0' }}>Truck #{truck.id}</h3>
-                                <div style={{
-                                    backgroundColor: '#4a90e2',
-                                    color: 'white',
-                                    padding: '5px',
-                                    borderRadius: '3px'
-                                }}>
-                                    <strong>Status: {truck.status}</strong>
+                {trucks.map((truck) => {
+                    // Use animated position if available, otherwise use truck's actual position
+                    const animatedPos = truckPositions[truck.id];
+                    const position = animatedPos ? [animatedPos.lat, animatedPos.lon] : [truck.lat, truck.lon];
+                    
+                    return (
+                        <Marker
+                            key={truck.id}
+                            position={position}
+                            icon={truckIcon}
+                        >
+                            <Popup>
+                                <div style={{ padding: '5px', textAlign: 'center' }}>
+                                    <h3 style={{ margin: '0 0 5px 0' }}>Truck #{truck.id}</h3>
+                                    <div style={{
+                                        backgroundColor: '#4a90e2',
+                                        color: 'white',
+                                        padding: '5px',
+                                        borderRadius: '3px'
+                                    }}>
+                                        <strong>Status: {truck.status}</strong>
+                                    </div>
+                                    {animatedPos && (
+                                        <div style={{
+                                            backgroundColor: '#ff6b6b',
+                                            color: 'white',
+                                            padding: '3px',
+                                            borderRadius: '3px',
+                                            marginTop: '5px',
+                                            fontSize: '12px'
+                                        }}>
+                                            Moving...
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                            </Popup>
+                        </Marker>
+                    );
+                })}
             </MapContainer>
         </div>
     );
