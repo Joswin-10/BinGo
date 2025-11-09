@@ -9,13 +9,7 @@ app = FastAPI(title="BinGo API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # React dev server
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:5174",  # Vite dev server (alternative port)
-        "http://localhost:5175",  # Vite dev server (alternative port)
-        "http://localhost:5176",  # Vite dev server (alternative port)
-        "http://localhost:5177",  # Vite dev server (alternative port)
-        "http://localhost:5178",  # Vite dev server (alternative port)
+        "http://localhost:5173",  # React dev server
         "https://bin-go-xi.vercel.app",  # Vercel deployment
         "https://bin-go-xi.vercel.app/",  # Vercel deployment with trailing slash
         "http://bin-go-xi.vercel.app",  # HTTP version

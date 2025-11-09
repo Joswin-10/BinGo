@@ -92,80 +92,53 @@ class SimulationManager:
             return max(bins, key=lambda b: b.waste_level) if bins else None
 
     def simulate_step(self) -> dict:
-        try:
-            # Always reload trucks to get fresh data from database
+        if not self.truck_queue:
             self.load_trucks()
             if not self.truck_queue:
-                return {"message": "No trucks available", "success": False}
+                return {"message": "No trucks available"}
 
-            # Get first truck from queue
-            truck = self.truck_queue.popleft()
-            print(f"Processing truck {truck.id} at position ({truck.lat}, {truck.lon})")
+        # Get first truck from queue
+        truck = self.truck_queue.popleft()
+        
+        # Get uncollected bins
+        bins = self.get_uncollected_bins()
+        if not bins:
+            return {"message": "All bins collected"}
+
+        # Find next bin to collect
+        target_bin = self.find_closest_bin(truck, bins)
+        if not target_bin:
+            return {"message": "No accessible bins found"}
+
+        # Update truck position and status
+        truck.lat = target_bin.lat
+        truck.lon = target_bin.lon
+        truck.status = "collecting"
+        truck.current_bin_id = target_bin.id
+
+        try:
+            # Mark bin as collected
+            self.db.table("bins").update({"is_collected": True}).eq("id", str(target_bin.id)).execute()
             
-            # Get uncollected bins
-            bins = self.get_uncollected_bins()
-            if not bins:
-                # Auto-reset: mark all bins as uncollected
-                print("No uncollected bins found. Auto-resetting all bins...")
-                try:
-                    self.db.table("bins").update({"is_collected": False}).execute()
-                    bins = self.get_uncollected_bins()
-                    print(f"Reset completed. Found {len(bins)} uncollected bins.")
-                except Exception as e:
-                    print(f"Auto-reset failed: {e}")
-                    self.truck_queue.append(truck)
-                    return {"message": "All bins collected and reset failed", "success": False}
-                
-                if not bins:
-                    self.truck_queue.append(truck)
-                    return {"message": "No bins available after reset", "success": False}
-
-            # Find next bin to collect
-            target_bin = self.find_closest_bin(truck, bins)
-            if not target_bin:
-                # Put truck back in queue
-                self.truck_queue.append(truck)
-                return {"message": "No accessible bins found", "success": False}
-
-            print(f"Truck {truck.id} moving to bin {target_bin.id} at ({target_bin.lat}, {target_bin.lon})")
-
-            # Update truck position and status
-            old_lat, old_lon = truck.lat, truck.lon
-            truck.lat = target_bin.lat
-            truck.lon = target_bin.lon
-            truck.status = "collecting"
-            truck.current_bin_id = target_bin.id
-
-            # Update truck in database first
+            # Convert truck data to dict and update in database
             truck_data = {
                 "lat": truck.lat,
                 "lon": truck.lon,
                 "status": truck.status,
                 "current_bin_id": str(truck.current_bin_id) if truck.current_bin_id else None
             }
-            truck_update_result = self.db.table("trucks").update(truck_data).eq("id", str(truck.id)).execute()
-            print(f"Truck update result: {truck_update_result}")
-            
-            # Mark bin as collected
-            bin_update_result = self.db.table("bins").update({"is_collected": True}).eq("id", str(target_bin.id)).execute()
-            print(f"Bin update result: {bin_update_result}")
+            self.db.table("trucks").update(truck_data).eq("id", str(truck.id)).execute()
 
-            # Reset truck status and add back to queue
+            # Add truck back to queue
             truck.status = "waiting"
             truck.current_bin_id = None
             self.truck_queue.append(truck)
 
             return {
                 "message": "Simulation step completed",
-                "success": True,
                 "truck_id": str(truck.id),
-                "collected_bin_id": str(target_bin.id),
-                "old_position": {"lat": old_lat, "lon": old_lon},
-                "new_position": {"lat": truck.lat, "lon": truck.lon}
+                "collected_bin_id": str(target_bin.id)
             }
         except Exception as e:
             print(f"Error in simulate_step: {str(e)}")
-            # Put truck back in queue if it was removed
-            if 'truck' in locals() and truck not in self.truck_queue:
-                self.truck_queue.append(truck)
             raise
