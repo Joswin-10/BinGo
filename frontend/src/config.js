@@ -50,5 +50,7 @@ export const fetchWithRetry = async (url, options = {}, retries = API_CONFIG.ret
 export const ENDPOINTS = {
     BINS: '/api/bins',
     TRUCKS: '/api/trucks',
-    SIMULATE: '/api/simulate/step'
+    SIMULATE: '/api/simulate/step',
+    SIMULATE_RUN: '/api/simulate/run',
+    RESET_BINS: '/api/bins/reset'
 };

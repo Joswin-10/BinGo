@@ -75,6 +75,8 @@ const MapView = () => {
     const [center, setCenter] = useState([40.7128, -74.0060]);
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [simulating, setSimulating] = useState(false);
+    const [simulationProgress, setSimulationProgress] = useState(null);
 
     const fetchData = async () => {
         try {
@@ -130,6 +132,103 @@ const MapView = () => {
         }
     };
 
+    const resetBins = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            const result = await fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.RESET_BINS}`, {
+                method: 'POST',
+            });
+            
+            console.log('Reset result:', result);
+            setError(null);
+            
+            // Clear simulation progress
+            setSimulationProgress(null);
+            
+            // Refresh data after reset
+            await fetchData();
+        } catch (error) {
+            setError('Reset failed: ' + error.message);
+            console.error('Error resetting bins:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const runFullSimulation = async () => {
+        try {
+            setSimulating(true);
+            setError(null);
+            setSimulationProgress({ current: 0, total: 0, timeElapsed: 0 });
+            
+            const startTime = Date.now();
+            let stepCount = 0;
+            
+            // Helper to fetch and get bins count
+            const getUncollectedCount = async () => {
+                const binsData = await fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.BINS}`);
+                const uncollected = binsData.filter(b => !b.is_collected);
+                return uncollected.length;
+            };
+            
+            // Initial fetch
+            await fetchData();
+            let uncollectedCount = await getUncollectedCount();
+            
+            // Run simulation steps until all bins are collected
+            while (uncollectedCount > 0) {
+                // Run one simulation step
+                try {
+                    const result = await fetchWithRetry(`${API_CONFIG.baseUrl}${ENDPOINTS.SIMULATE}`, {
+                        method: 'POST',
+                    });
+                    
+                    stepCount++;
+                    const timeElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+                    
+                    // Refresh data to show truck movement
+                    await fetchData();
+                    
+                    // Update uncollected count
+                    uncollectedCount = await getUncollectedCount();
+                    
+                    setSimulationProgress({
+                        current: stepCount,
+                        total: uncollectedCount + stepCount,
+                        timeElapsed: timeElapsed,
+                        lastStep: result
+                    });
+                    
+                    // Add delay so user can see truck traveling (500ms delay)
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // Check if simulation should stop
+                    if (result.message === "All bins collected" || result.message === "No accessible bins found") {
+                        setSimulationProgress(prev => ({ ...prev, completed: true }));
+                        break;
+                    }
+                } catch (stepError) {
+                    console.error('Error in simulation step:', stepError);
+                    setError('Error during simulation step. Continuing...');
+                    // Continue with next step
+                    uncollectedCount = await getUncollectedCount();
+                }
+            }
+            
+            // Final data refresh
+            await fetchData();
+            setSimulationProgress(prev => ({ ...prev, completed: true }));
+            
+        } catch (error) {
+            setError('Simulation failed: ' + error.message);
+            console.error('Error during full simulation:', error);
+        } finally {
+            setSimulating(false);
+        }
+    };
+
     return (
         <div className="map-container" style={{ height: '80vh', width: '100%' }}>
             <div className="controls" style={{ margin: '10px', position: 'absolute', zIndex: 1000 }}>
@@ -144,20 +243,69 @@ const MapView = () => {
                         {error}
                     </div>
                 )}
+                {simulationProgress && (
+                    <div style={{
+                        backgroundColor: '#4a90e2',
+                        color: 'white',
+                        padding: '10px',
+                        borderRadius: '5px',
+                        marginBottom: '10px',
+                        fontSize: '14px'
+                    }}>
+                        <div><strong>Simulation Progress:</strong></div>
+                        <div>Steps: {simulationProgress.current} / {simulationProgress.total || '?'}</div>
+                        <div>Time Elapsed: {simulationProgress.timeElapsed}s</div>
+                        {simulationProgress.completed && (
+                            <div style={{ marginTop: '5px', fontWeight: 'bold' }}>✓ All bins collected!</div>
+                        )}
+                    </div>
+                )}
                 <button 
-                    onClick={simulateStep}
-                    disabled={loading}
+                    onClick={runFullSimulation}
+                    disabled={loading || simulating}
                     style={{
                         padding: '10px 20px',
                         fontSize: '16px',
-                        backgroundColor: loading ? '#cccccc' : '#4CAF50',
+                        backgroundColor: (loading || simulating) ? '#cccccc' : '#4CAF50',
                         color: 'white',
                         border: 'none',
                         borderRadius: '5px',
-                        cursor: loading ? 'not-allowed' : 'pointer'
+                        cursor: (loading || simulating) ? 'not-allowed' : 'pointer',
+                        marginRight: '10px'
                     }}
                 >
-                    {loading ? 'Loading...' : 'Run Simulation Step'}
+                    {simulating ? 'Running Simulation...' : 'Run Simulation'}
+                </button>
+                <button 
+                    onClick={simulateStep}
+                    disabled={loading || simulating}
+                    style={{
+                        padding: '10px 20px',
+                        fontSize: '16px',
+                        backgroundColor: (loading || simulating) ? '#cccccc' : '#2196F3',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '5px',
+                        cursor: (loading || simulating) ? 'not-allowed' : 'pointer',
+                        marginRight: '10px'
+                    }}
+                >
+                    {loading ? 'Loading...' : 'Run Single Step'}
+                </button>
+                <button 
+                    onClick={resetBins}
+                    disabled={loading || simulating}
+                    style={{
+                        padding: '10px 20px',
+                        fontSize: '16px',
+                        backgroundColor: (loading || simulating) ? '#cccccc' : '#f44336',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '5px',
+                        cursor: (loading || simulating) ? 'not-allowed' : 'pointer'
+                    }}
+                >
+                    {loading ? 'Resetting...' : 'Reset All Bins'}
                 </button>
             </div>
             <MapContainer
@@ -196,6 +344,15 @@ const MapView = () => {
                                 }}>
                                     Status: {bin.is_collected ? 'Collected' : 'Not Collected'}
                                 </p>
+                                {bin.is_collected && bin.collected_at && (
+                                    <p style={{ 
+                                        margin: '5px 0',
+                                        fontSize: '12px',
+                                        color: '#666'
+                                    }}>
+                                        Collected at: {new Date(bin.collected_at).toLocaleTimeString()}
+                                    </p>
+                                )}
                             </div>
                         </Popup>
                     </Marker>

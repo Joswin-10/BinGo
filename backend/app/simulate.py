@@ -1,6 +1,7 @@
 from collections import deque
 import math
 from typing import List, Optional
+from datetime import datetime
 from .models import Bin, Truck
 from .core.database import get_db
 
@@ -142,3 +143,95 @@ class SimulationManager:
         except Exception as e:
             print(f"Error in simulate_step: {str(e)}")
             raise
+
+    def simulate_all(self) -> dict:
+        """Run simulation until all bins are collected, with time tracking"""
+        if not self.truck_queue:
+            self.load_trucks()
+            if not self.truck_queue:
+                return {"message": "No trucks available", "steps": []}
+
+        steps = []
+        start_time = datetime.now()
+        step_count = 0
+        
+        while True:
+            # Get uncollected bins
+            bins = self.get_uncollected_bins()
+            if not bins:
+                break
+            
+            # Get first truck from queue
+            if not self.truck_queue:
+                self.load_trucks()
+                if not self.truck_queue:
+                    break
+            
+            truck = self.truck_queue.popleft()
+            
+            # Find next bin to collect
+            target_bin = self.find_closest_bin(truck, bins)
+            if not target_bin:
+                # No accessible bins found, put truck back and break
+                self.truck_queue.append(truck)
+                break
+
+            # Calculate time for this step
+            current_time = datetime.now()
+            elapsed_time = (current_time - start_time).total_seconds()
+            step_count += 1
+
+            # Update truck position and status
+            truck.lat = target_bin.lat
+            truck.lon = target_bin.lon
+            truck.status = "collecting"
+            truck.current_bin_id = target_bin.id
+
+            try:
+                # Mark bin as collected with timestamp
+                collection_time = current_time.isoformat()
+                self.db.table("bins").update({
+                    "is_collected": True,
+                    "collected_at": collection_time
+                }).eq("id", str(target_bin.id)).execute()
+                
+                # Convert truck data to dict and update in database
+                truck_data = {
+                    "lat": truck.lat,
+                    "lon": truck.lon,
+                    "status": truck.status,
+                    "current_bin_id": str(truck.current_bin_id) if truck.current_bin_id else None
+                }
+                self.db.table("trucks").update(truck_data).eq("id", str(truck.id)).execute()
+
+                # Record step with time information
+                steps.append({
+                    "step": step_count,
+                    "truck_id": str(truck.id),
+                    "collected_bin_id": str(target_bin.id),
+                    "bin_lat": target_bin.lat,
+                    "bin_lon": target_bin.lon,
+                    "time_elapsed": round(elapsed_time, 2),
+                    "timestamp": collection_time
+                })
+
+                # Add truck back to queue
+                truck.status = "waiting"
+                truck.current_bin_id = None
+                self.truck_queue.append(truck)
+
+            except Exception as e:
+                print(f"Error in simulate_all step {step_count}: {str(e)}")
+                # Put truck back in queue even on error
+                truck.status = "waiting"
+                truck.current_bin_id = None
+                self.truck_queue.append(truck)
+                raise
+
+        total_time = (datetime.now() - start_time).total_seconds()
+        return {
+            "message": "Simulation completed" if not self.get_uncollected_bins() else "Simulation stopped",
+            "total_steps": step_count,
+            "total_time_seconds": round(total_time, 2),
+            "steps": steps
+        }
