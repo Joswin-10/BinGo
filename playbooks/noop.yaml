@@ -1,0 +1,5 @@
+- hosts: all
+  tasks:
+    - name: Hello from Zuul
+      debug:
+        msg: "BinGo job executed successfully!"

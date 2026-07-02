@@ -1,0 +1,8 @@
+- job:
+    name: bingo-noop
+    run: playbooks/noop.yaml
+
+- project:
+    check:
+      jobs:
+        - bingo-noop
