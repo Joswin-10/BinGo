@@ -1,4 +1,4 @@
 ﻿# BinGo - Garbage Truck Simulation
 hello testing 1
 succes testing 
-heh 1234
+heh 12345
