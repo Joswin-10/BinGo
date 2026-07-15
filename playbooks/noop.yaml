@@ -1,5 +1,8 @@
 - hosts: all
   tasks:
+    - name: Sleep for 120 seconds
+      ansible.builtin.command: sleep 120
+
     - name: Hello from Zuul
       debug:
         msg: "BinGo job executed successfully!"
